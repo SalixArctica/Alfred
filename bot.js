@@ -6,6 +6,10 @@ const wav = require('wav');
 const fileWriter = wav.FileWriter;
 const speech = require('@google-cloud/speech');
 const speechClient = new speech.SpeechClient();
+const opus = require('node-opus');
+const { exec } = require('child_process');
+
+const reader = new wav.Reader();
 
 //ready up!
 client.on('ready', () => {
@@ -31,16 +35,16 @@ client.on('message', msg => {
         //when a user starts speaking, start recording
         connection.on('speaking', (user, speaking) => {
             if(speaking){ 
-
-                console.log(`recording to ${user.username}.wav`)
+                let filename =`./audio/${user.username}.wav`
+                console.log(filename)
 
                 //create stream
-                let voxStream = receiver.createPCMStream(user)
+                let voxStream = receiver.createPCMStream(user);
 
-                //setup output file
-                let outputFileStream = new fileWriter(`./audio/${user.username + Date()}.wav`, {
-                    sampleRate: 96000, //double the Hz of the stream cause it sounds slow otherwise
-                    channels: 1
+                //setup wav/pcm output file
+                let outputFileStream = new fileWriter(filename, {
+                    sampleRate: 48000,
+                    channels: 2
                 });
 
                 //pipe to file
@@ -49,6 +53,44 @@ client.on('message', msg => {
                 //disconnect when user is done speaking
                 voxStream.on('end', () => {
                     console.log(`disconnecting from ${msg.member.voiceChannel}`);
+                    outputFileStream.on('end', () => {
+                        exec(`sox ${filename} -r 48k -c 1 ${'./audio/processedAudio.wav'}`,(err, stdout, stderr) => {
+                            if(err) {
+                                console.log(err, stderr);
+                                msg.reply('Sorry there was an error');
+                            }
+                            else {
+                                const config = {
+                                    encoding: 'LINEAR16',
+                                    sampleRateHertz: 48000,
+                                    languageCode: 'en-US',
+                                  };
+                                  const audio = {
+                                    content: fs.readFileSync('./audio/processedAudio.wav').toString('base64'),
+                                  };
+                                  
+                                  const request = {
+                                    config: config,
+                                    audio: audio,
+                                  };
+                                  
+                                  // Detects speech in the audio file
+                                  speechClient
+                                    .recognize(request)
+                                    .then(data => {
+                                      const response = data[0];
+                                      const transcription = response.results
+                                        .map(result => result.alternatives[0].transcript)
+                                        .join('\n');
+                                      msg.reply(`Here is my transcription: ${transcription}`);
+                                    })
+                                    .catch(err => {
+                                        console.error('ERROR:', err);
+                                        msg.reply('Sorry there was an error');
+                                    });
+                            }
+                        })
+                    })
                     connection.disconnect();
                 });
             }
