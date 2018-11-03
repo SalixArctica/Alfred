@@ -1,0 +1,23 @@
+{
+  "name": "alfred",
+  "version": "0.0.1",
+  "description": "A discord bot that take voice to speech notes",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Tankcaster",
+  "license": "MIT",
+  "dependencies": {
+    "bufferutil": "^4.0.0",
+    "discord.js": "^11.4.2",
+    "dotenv": "^6.1.0",
+    "grpc": "^1.11.3",
+    "nan": "^2.11.1",
+    "node-gyp": "^3.8.0",
+    "node-opus": "^0.3.1",
+    "node-wav": "0.0.2",
+    "opus-recorder": "^6.0.0",
+    "wav": "^1.0.2"
+  }
+}
