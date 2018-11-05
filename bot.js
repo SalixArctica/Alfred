@@ -5,8 +5,11 @@ const fs = require('fs');
 const wav = require('wav');
 const fileWriter = wav.FileWriter;
 const speech = require('@google-cloud/speech');
-const speechClient = new speech.SpeechClient();
 const { exec } = require('child_process');
+const speechClient = new speech.SpeechClient();
+
+//reference to audio directory
+const audioDir = __dirname + '/audio/';
 
 //ready up!
 client.on('ready', () => {
@@ -19,26 +22,40 @@ client.on('message', msg => {
     //check message
     if (msg.content === '!alfred') {
 
+
         //join the channel
         msg.member.voiceChannel.join()
         .then(connection => {
             console.log(`joined channel ${msg.member.voiceChannel}`)
 
+
+
+            //setup filenames/streams for each user in the channel
+            let users = msg.member.voiceChannel.members.map(member => {
+                return {
+                    filename: member.id + '-' + Date.now().toString() + '.wav',
+                    id: member.id,
+                    stream: '',
+                    name: member.displayName,
+                    outfile: member.id + '-' + Date.now().toString() +  '.processed.wav',
+                    transcript: ''
+                }
+            });
+
+            //setup file streams for each user
+            let fileWriters = users.map(user => {
+                return new fileWriter(audioDir + user.filename, {
+                    sampleRate: 48000,
+                    channels: 2
+                });
+            })
+
             //play a beep so we can listen
             connection.playFile('./beep-07.mp3')
             .on('end', () => console.log(`recording!`));
 
-            const filename = __dirname + '/audio/' + msg.member.id;
+            
             const receiver = connection.createReceiver();
-            const originalUser = msg.member.id;
-
-            //setup wav/pcm output file
-            let outputFileStream = new fileWriter(filename, {
-                sampleRate: 48000,
-                channels: 2
-            });
-
-            let voxStream;
 
 
             //when a user starts speaking, start recording
@@ -46,38 +63,71 @@ client.on('message', msg => {
                 
                 if(speaking){ 
                     
+                    //finds which user is currently speaking
+                    let pos = users.map(user => user.id).indexOf(user.id);
 
-                    //create stream
-                    voxStream = receiver.createPCMStream(user);
+                    //only record if user was there at beggining
+                    if(pos != -1){
+                        //create stream
+                        users[pos].stream = receiver.createPCMStream(user);
 
-                    //pipe to file
-                    voxStream.pipe(outputFileStream, {end: false});
+                        //pipe to file
+                        users[pos].stream.pipe(fileWriters[pos], {end: false});
+                    }
                 }
             })
-
+            //check for stop message
             client.on('message', msg2 => {
                 if(msg2.content.toLowerCase() == '!alfred stop') {
 
+                    //disconnect
                     connection.disconnect();
 
-                    outputFileStream.end();
-                    
+                    //close all filestreams
+                    fileWriters.forEach(writer => {
+                        writer.end();
+                    })
 
-                    outputFileStream.on('end', () => {
-                        console.log('doing sox conversion');
-                        makeAudioMono(filename)
+                    let filesConverted = 0;
+
+                    //convert all to mono
+                    console.log('doing sox conversion');
+                    users.forEach(user => {
+                        makeAudioMono(user.filename, user.outfile)
                         .then(() => {
-                            console.log('conversion succeded!');
-                            sendSpeechRequest(__dirname + '/audio/processed.wav')
+                            console.log(`conversion for ${user.name} succeded!`)
+                            filesConverted++;
+                            if(filesConverted == users.length) {
+                                sendAllRequests(users);
+                            }
+                        })
+                        .catch((err) => console.log);
+                    })
+                    
+                    const sendAllRequests = users => {
+
+                        let output = '';
+
+                        //get transcripts for all users
+                        users.forEach(user => {
+                            console.log('sending transcript request for ' + user.name);
+                            sendSpeechRequest(audioDir + user.outfile)
                             .then(transcription => {
-                                msg.reply(`transcription: ${transcription}`)
-                                msg.delete();
-                                msg2.delete();
+                                if(transcription != '') { 
+                                    output += user.name + ': ' + transcription + '\n';
+                                }
+                            })
+                            .then(() => msg.channel.send(output)) //SEND IT!
+                            .then(() => {
+                                fs.unlink(audioDir + user.filename)
+                                .catch(err => console.log);
+                                fs.unlink(audioDir + user.outfile)
+                                .catch(err => console.log);
                             })
                             .catch(err => console.log);
                         })
-                        .catch(err => console.log);
-                    });
+                    }
+
                 }
             });
         });
@@ -88,10 +138,10 @@ client.on('message', msg => {
 client.login(process.env.DISCORD_TOKEN)
 .catch(err => console.log(err));
 
-const makeAudioMono = (filename) => {
+const makeAudioMono = (filename, outfile) => {
     return new Promise((resolve, reject) => {
         //use sox cli to make audio mono
-        exec(`sox ${filename} -r 16k -c 1 ${__dirname + '/audio/processed.wav'}`,(err, stdout, stderr) => {
+        exec(`sox ${audioDir + filename} -r 16k -c 1 ${audioDir + outfile}`,(err, stdout, stderr) => {
             if(err) {
                 console.log(err, stderr);
                 reject(err);
