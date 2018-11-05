@@ -6,7 +6,6 @@ const wav = require('wav');
 const fileWriter = wav.FileWriter;
 const speech = require('@google-cloud/speech');
 const speechClient = new speech.SpeechClient();
-const opus = require('node-opus');
 const { exec } = require('child_process');
 
 //ready up!
@@ -18,69 +17,71 @@ client.on('ready', () => {
 client.on('message', msg => {
 
     //check message
-  if (msg.content === '!alfred') {
+    if (msg.content === '!alfred') {
 
-    //join the channel
-    msg.member.voiceChannel.join()
-    .then(connection => {
-        console.log(`joined channel ${msg.member.voiceChannel}`)
+        //join the channel
+        msg.member.voiceChannel.join()
+        .then(connection => {
+            console.log(`joined channel ${msg.member.voiceChannel}`)
 
-        //play a beep so we can listen
-        connection.playFile('./beep-07.mp3')
-        .on('end', () => console.log(`recording!`));
+            //play a beep so we can listen
+            connection.playFile('./beep-07.mp3')
+            .on('end', () => console.log(`recording!`));
 
-        const filename = __dirname + '/audio/audio.wav';
-        const receiver = connection.createReceiver();
+            const filename = __dirname + '/audio/' + msg.member.id;
+            const receiver = connection.createReceiver();
+            const originalUser = msg.member.id;
 
-        //setup wav/pcm output file
-        let outputFileStream = new fileWriter(filename, {
-            sampleRate: 48000,
-            channels: 2
-        });
+            //setup wav/pcm output file
+            let outputFileStream = new fileWriter(filename, {
+                sampleRate: 48000,
+                channels: 2
+            });
 
-        let voxStream;
+            let voxStream;
 
 
-        //when a user starts speaking, start recording
-        connection.on('speaking', (user, speaking) => {
-            if(speaking){ 
+            //when a user starts speaking, start recording
+            connection.on('speaking', (user, speaking) => {
                 
+                if(speaking){ 
+                    
 
-                //create stream
-                voxStream = receiver.createPCMStream(user);
+                    //create stream
+                    voxStream = receiver.createPCMStream(user);
 
-                //pipe to file
-                voxStream.pipe(outputFileStream, {end: false});
-            }
-        })
+                    //pipe to file
+                    voxStream.pipe(outputFileStream, {end: false});
+                }
+            })
 
-        client.on('message', msg2 => {
-            if(msg2.content.toLowerCase() == '!alfred stop') {
+            client.on('message', msg2 => {
+                if(msg2.content.toLowerCase() == '!alfred stop') {
 
-                connection.disconnect();
+                    connection.disconnect();
 
-                outputFileStream.end();
-                
+                    outputFileStream.end();
+                    
 
-                outputFileStream.on('end', () => {
-                    console.log('doing sox conversion');
-                    makeAudioMono(filename)
-                    .then(() => {
-                        console.log('conversion succeded!');
-                        sendSpeechRequest(__dirname + '/audio/processed.wav')
-                        .then(transcription => {
-                            msg.reply(`transcription: ${transcription}`)
-                            msg.delete();
-                            msg2.delete();
+                    outputFileStream.on('end', () => {
+                        console.log('doing sox conversion');
+                        makeAudioMono(filename)
+                        .then(() => {
+                            console.log('conversion succeded!');
+                            sendSpeechRequest(__dirname + '/audio/processed.wav')
+                            .then(transcription => {
+                                msg.reply(`transcription: ${transcription}`)
+                                msg.delete();
+                                msg2.delete();
+                            })
+                            .catch(err => console.log);
                         })
                         .catch(err => console.log);
-                    })
-                    .catch(err => console.log);
-                });
-            }
+                    });
+                }
+            });
         });
-    });
-  }
+    }
 });
 
 //login
